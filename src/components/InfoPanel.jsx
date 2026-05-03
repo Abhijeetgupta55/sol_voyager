@@ -11,7 +11,7 @@ export default function InfoPanel({ factors, susceptibilityData, insarMetadata, 
   return (
     <div className="info-panel">
       <div className="info-header" style={{ marginBottom: "1rem" }}>
-        <h2 className="info-panel-title">InSAR Analysis Factors</h2>
+        <h2 className="info-panel-title">SAR Intensity Factors</h2>
         {geeResult && (
           <div className="nasa-badge" style={{ fontSize: "0.65rem", display: "inline-block" }}>
             Stack: {geeResult.product_count} SLC Products
@@ -32,11 +32,14 @@ export default function InfoPanel({ factors, susceptibilityData, insarMetadata, 
               </div>
             </div>
             <div className="metric">
-              <span style={{ fontSize: "0.7rem", opacity: 0.7 }}>Temporal Variance</span>
+              <span style={{ fontSize: "0.7rem", opacity: 0.7 }}>ISI (Intensity StdDev)</span>
               <div style={{ fontSize: "1rem", fontWeight: "bold", color: "#4ade80" }}>
-                {geeResult.mean_variance?.toFixed(4)}
+                {geeResult.stability_index?.toFixed(4)}
               </div>
             </div>
+          </div>
+          <div style={{ fontSize: "0.7rem", marginTop: "1rem", color: "#4ade80", opacity: 0.8, fontStyle: "italic" }}>
+             Method: Heuristic Statistical Outliers (Uncalibrated dB)
           </div>
         </div>
       )}

@@ -71,10 +71,13 @@ export default function MapPage() {
       setGeeResult(data.geeResult);
       
       if (data.geeResult && !data.geeResult.error) {
-        addLog(`GEE Handshake successful. Analyzing stack of ${data.geeResult.product_count} images...`);
-        addLog(`Log-Ratio & Temporal Variance computed in ${elapsed.toFixed(1)}s.`);
-        addLog(`✅ SAR ANALYSIS VERIFIED: Identified ground instability zones.`);
+        addLog(`GEE Handshake successful. Applying Radiometric Terrain Correction (SRTM)...`);
+        addLog(`SAR Backscatter Analysis complete at 10m resolution in ${elapsed.toFixed(1)}s.`);
+        addLog(`✅ DATA CLUSTER VERIFIED: Masked high-slope noise (>15°).`);
       } else {
+
+
+
         const errorMsg = data.geeResult?.error || "Connection timeout or quota exceeded.";
         addLog(`GEE ERROR: ${errorMsg}`);
       }

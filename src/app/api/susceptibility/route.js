@@ -49,23 +49,21 @@ function generateSusceptibilityGeoJSON(center, geeResult) {
     return {
       type: "FeatureCollection",
       features: geeResult.anomalies.map(f => {
-        const lr = f.properties.log_ratio || 0;
-        const v = f.properties.variance || 0;
+        const lr = f.properties.bci || 0; // Backscatter Change Intensity
+        const si = f.properties.isi || 0; // Intensity Stability Index
         
-        // SCIENTIFIC RISK MAPPING:
-        // High Log-Ratio difference + High Variance = Critical instability
+        // HEURISTIC CLUSTERING (Uncalibrated)
         let risk = "low";
-        if (Math.abs(lr) > 3.0 || v > 5.0) risk = "very_high";
-        else if (Math.abs(lr) > 1.5 || v > 2.0) risk = "moderate";
+        if (Math.abs(lr) > 2.0 || si > 4.0) risk = "very_high";
+        else if (Math.abs(lr) > 1.2 || si > 1.5) risk = "moderate";
 
         return {
           type: "Feature",
           properties: {
             risk,
-            log_ratio: lr.toFixed(3),
-            variance: v.toFixed(3),
-            deformationRate: (lr * 5).toFixed(1), // Derived velocity
-            coherence: (1.0 - Math.min(v/10, 1.0)).toFixed(2)
+            bci_db: lr.toFixed(3),
+            isi_std: si.toFixed(3),
+            label: "Heuristic Outlier"
           },
           geometry: f.geometry
         };
@@ -93,20 +91,20 @@ export async function GET(request) {
     geojson, 
     center, 
     geeResult,
-    insarMetadata: {
-      satellite: "Sentinel-1 (VV)",
-      method: "Log-Ratio Change Detection",
-      stack_size: geeResult?.product_count || 0,
-      latest_acq: geeResult?.latest_acq || "Live",
-      status: geeResult ? "GEE Cloud Processing Complete" : "GEE Authentication Required"
+    sarMetadata: {
+      satellite: "Sentinel-1 (GRD VV)",
+      method: "Heuristic Outlier Detection",
+      orbit: geeResult?.orbit_detected || "Detected",
+      ref_angle: geeResult?.reference_angle?.toFixed(1) + "°",
+      stack_integrity: `${geeResult?.product_count}/${geeResult?.total_available} consistent`,
+      status: geeResult ? "Geometric Integrity Enforced" : "GEE Handshake Required"
     },
     factors: {
-      geology: "SAR Backscatter analysis engaged",
-      groundwater: "Temporal variance identified",
-      insar_summary: geeResult 
-        ? `GEE analyzed ${geeResult.product_count} acquisitions. Mean Log-Ratio: ${geeResult.mean_log_ratio?.toFixed(4)}.`
-        : "GEE Handshake failed. Please run 'earthengine authenticate'."
+      geology: "Backscatter intensity distribution (Heuristic)",
+      groundwater: "Intensity stability index (Uncalibrated)",
+      sar_summary: geeResult 
+        ? `Statistical analysis of ${geeResult.product_count} geometrically consistent acquisitions. No phase deformation measured.`
+        : "GEE Handshake failed."
     }
   });
 }
-

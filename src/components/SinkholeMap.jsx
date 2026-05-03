@@ -58,7 +58,7 @@ export default function SinkholeMap({ center, zoom, geojsonData, onSelectZone })
             });
           }}
           onEachFeature={(feature, layer) => {
-            const { risk, deformationRate, log_ratio, variance, coherence } = feature.properties;
+            const { risk, bci_db, isi_std } = feature.properties;
             
             layer.on('click', () => {
               if (onSelectZone) onSelectZone(feature.properties);
@@ -66,14 +66,17 @@ export default function SinkholeMap({ center, zoom, geojsonData, onSelectZone })
 
             layer.bindPopup(
               `<div style="font-family: Inter, sans-serif; color: #1a1a1a;">` +
-              `<b style="color: ${risk === 'very_high' ? '#ef4444' : '#b45309'}; text-transform: uppercase;">${risk.replace("_", " ")} Risk</b><br/>` +
+              `<b style="color: ${risk === 'very_high' ? '#ef4444' : '#b45309'}; text-transform: uppercase;">Heuristic Outlier: ${risk.replace("_", " ")}</b><br/>` +
               `<hr style="margin: 5px 0; border: 0; border-top: 1px solid #eee;"/>` +
-              `<b>Log-Ratio:</b> ${log_ratio}<br/>` +
-              `<b>Temporal Variance:</b> ${variance}<br/>` +
-              `<b>Coherence:</b> ${coherence}` +
+              `<b>BCI:</b> ${bci_db} dB<br/>` +
+              `<b>ISI:</b> ${isi_std} (Intensity StdDev)<br/>` +
+              `<div style="font-size: 0.65rem; margin-top: 5px; opacity: 0.7;">* Uncalibrated Heuristic Analysis</div>` +
               `</div>`
             );
           }}
+
+
+
         />
       )}
 
