@@ -67,14 +67,25 @@ def run_gee_analysis(lat, lon):
 
 
 
-    # 4. TERRAIN NORMALIZATION (Slope Masking >15 deg)
+    # 4. TERRAIN & WATER NORMALIZATION (Slope & Surface Water Masked)
     dem = ee.Image('USGS/SRTMGL1_003')
     slope = ee.Terrain.slope(dem)
     
-    # We apply the mask to the collection
-    s1_col = s1_col.map(lambda img: img.updateMask(slope.lt(15)))
+    # Global Surface Water Mask (JRC)
+    jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater')
+    # Use unmask(0) to ensure land with 0 water occurrence is not nulled out
+    water_occurrence = jrc.select('occurrence').unmask(0)
+    land_mask = water_occurrence.lt(10) # Keep anything with < 10% water occurrence
+    
+    # Combined Mask: Gentle slope AND not water
+    # Increased slope threshold to 20 deg for better urban coverage
+    final_mask = slope.lt(20).And(land_mask)
+    
+    s1_col = s1_col.map(lambda img: img.updateMask(final_mask))
 
     stack_size = s1_col.size().getInfo()
+
+
     
     # 5. Integrity Check
     if stack_size < 5:
@@ -100,21 +111,46 @@ def run_gee_analysis(lat, lon):
 
     # 8. HEURISTIC ANOMALY SAMPLING
     anomaly_mask = bci.abs().gt(1.5).Or(isi.gt(3.0))
-    samples = bci.addBands(isi).updateMask(anomaly_mask).sample(
-        region=aoi,
-        scale=20,
-        numPixels=150,
-        geometries=True,
-        dropNulls=True
-    ).getInfo()
+    
+    # NEW: Binary Label for ML (1 if the AOI contains high-magnitude anomalies)
+    has_anomaly = anomaly_mask.reduceRegion(
+        reducer=ee.Reducer.max(),
+        geometry=aoi,
+        scale=100
+    ).getInfo().get('bci', 0) or anomaly_mask.reduceRegion(
+        reducer=ee.Reducer.max(),
+        geometry=aoi,
+        scale=100
+    ).getInfo().get('isi', 0)
 
-    if not samples['features']:
-        samples = bci.addBands(isi).sample(
-            region=aoi,
-            scale=100,
-            numPixels=100,
-            geometries=True
-        ).getInfo()
+    # 9. PATCH EXPORT (2.5km Center Patch)
+    # Define a smaller patch for ML training (256x256 pixels approx)
+    patch_aoi = point.buffer(1280).bounds() 
+    patch_url = bci.addBands(isi).getDownloadURL({
+        'name': 'sar_patch',
+        'scale': 10,
+        'region': patch_aoi,
+        'format': 'NPY'
+    })
+
+    # 8. DETERMINISTIC VECTORIZED EXTRACTION
+    # We use the integer mask as the first band to define vector boundaries
+    # bci and isi are carried as additional bands for the reducer to process.
+    vector_input = anomaly_mask.rename('label').toInt().addBands(bci).addBands(isi)
+    
+    anomaly_vectors = vector_input.reduceToVectors(
+        geometry=aoi,
+        scale=40,               # 40m resolution for spatial consistency
+        geometryType='centroid',
+        reducer=ee.Reducer.mean(),
+        maxPixels=1e8
+    )
+
+    # Convert to GeoJSON features
+    samples = anomaly_vectors.getInfo()
+
+
+
 
     result = {
         "product_count": stack.size().getInfo(),
@@ -124,10 +160,14 @@ def run_gee_analysis(lat, lon):
         "mean_bci": stats.get('bci'),
         "mean_isi": stats.get('isi'),
         "anomalies": samples['features'], 
+        "patch_url": patch_url,
+        "label": 1 if has_anomaly else 0,
         "status": "GEOMETRIC_INTEGRITY_ENFORCED",
-        "terrain_correction": "SRTM_SLOPE_MASKED",
+        "terrain_correction": "SRTM_SLOPE_JRC_WATER_MASKED",
         "methodology": "Heuristic Outlier Detection (Uncalibrated)"
+
     }
+
     
     print(f"RESULT_JSON:{json.dumps(result)}")
     return result

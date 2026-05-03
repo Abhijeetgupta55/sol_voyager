@@ -2,13 +2,46 @@ import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import path from "path";
 import util from "util";
+import fs from "fs";
 
 const execPromise = util.promisify(exec);
+
+/**
+ * Automate Dataset Collection for ML Training
+ */
+async function harvestPatch(patchUrl, label, cityName) {
+  if (!patchUrl) return;
+  try {
+    const timestamp = Date.now();
+    const fileName = `${cityName.replace(/\s+/g, '_')}_${timestamp}.npy`;
+    const imagePath = path.join(process.cwd(), "dataset", "images", fileName);
+    const csvPath = path.join(process.cwd(), "dataset", "labels", "labels.csv");
+
+    // Fetch NPY from GEE
+    const response = await fetch(patchUrl);
+    if (!response.ok) throw new Error("GEE Patch Download Failed");
+    
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(imagePath, buffer);
+
+    // Append to CSV
+    const csvLine = `${fileName},${label}\n`;
+    if (!fs.existsSync(csvPath)) {
+      fs.writeFileSync(csvPath, "filename,label\n");
+    }
+    fs.appendFileSync(csvPath, csvLine);
+    
+    console.log(`[DATASET] Harvested patch: ${fileName} (Label: ${label})`);
+  } catch (err) {
+    console.error("[DATASET ERROR]", err);
+  }
+}
 
 /**
  * Fetch real coordinates from Nominatim API
  */
 async function getCoordinates(city) {
+
   try {
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(city)}&limit=1`,
@@ -44,15 +77,16 @@ async function runGEEAnalysis(lat, lon) {
 }
 
 function generateSusceptibilityGeoJSON(center, geeResult) {
-  // Use real GEE feature points if available
   if (geeResult && geeResult.anomalies) {
     return {
       type: "FeatureCollection",
       features: geeResult.anomalies.map(f => {
-        const lr = f.properties.bci || 0; // Backscatter Change Intensity
-        const si = f.properties.isi || 0; // Intensity Stability Index
+        const props = f.properties || {};
         
-        // HEURISTIC CLUSTERING (Uncalibrated)
+        // Find bci and isi by checking for common GEE reduction patterns
+        const lr = props.bci || props.bci_mean || props.mean || 0;
+        const si = props.isi || props.isi_mean || props.mean_1 || 0;
+        
         let risk = "low";
         if (Math.abs(lr) > 2.0 || si > 4.0) risk = "very_high";
         else if (Math.abs(lr) > 1.2 || si > 1.5) risk = "moderate";
@@ -61,9 +95,9 @@ function generateSusceptibilityGeoJSON(center, geeResult) {
           type: "Feature",
           properties: {
             risk,
-            bci_db: lr.toFixed(3),
-            isi_std: si.toFixed(3),
-            label: "Heuristic Outlier"
+            bci_db: Number(lr).toFixed(3),
+            isi_std: Number(si).toFixed(3),
+            label: "Spatially Fixed Anomaly"
           },
           geometry: f.geometry
         };
@@ -72,6 +106,7 @@ function generateSusceptibilityGeoJSON(center, geeResult) {
   }
   return { type: "FeatureCollection", features: [] };
 }
+
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -85,7 +120,13 @@ export async function GET(request) {
   // RUN REAL GEE SAR ANALYSIS
   const geeResult = await runGEEAnalysis(center[0], center[1]);
   
+  // TRIGGER ML HARVESTER (Async)
+  if (geeResult && !geeResult.error) {
+    harvestPatch(geeResult.patch_url, geeResult.label, city);
+  }
+
   const geojson = generateSusceptibilityGeoJSON(center, geeResult);
+
   
   return NextResponse.json({ 
     geojson, 
