@@ -28,13 +28,13 @@ const stats = [
     icon: "fas fa-map-marker-alt",
     label: "High Risk Areas",
     value: "12",
-    change: "1 resolved",
+    change: "1 resolved this week",
     changeIcon: "fas fa-arrow-down",
     variant: "warning",
   },
   {
     icon: "fas fa-sync-alt",
-    label: "Data Updates",
+    label: "Data Uptime",
     value: "98.5%",
     change: "System healthy",
     changeIcon: "fas fa-check-circle",
@@ -71,28 +71,28 @@ const alerts = [
 
 const zones = [
   {
-    name: "Downtown District - Zone A-12",
+    name: "Downtown District — Zone A-12",
     status: "monitoring-status",
     statusLabel: "MONITORING",
-    details: "Deformation rate: -8.5mm/year | Last update: 2 hours ago",
+    details: "Deformation rate: −8.5 mm/yr  |  Last update: 2 hours ago",
   },
   {
-    name: "Industrial Area - Zone B-07",
+    name: "Industrial Area — Zone B-07",
     status: "monitoring-status",
     statusLabel: "MONITORING",
-    details: "Deformation rate: -5.2mm/year | Last update: 5 hours ago",
+    details: "Deformation rate: −5.2 mm/yr  |  Last update: 5 hours ago",
   },
   {
-    name: "Residential Area - Zone C-15",
+    name: "Residential Area — Zone C-15",
     status: "active-status",
     statusLabel: "STABLE",
-    details: "Deformation rate: -1.8mm/year | Last update: 8 hours ago",
+    details: "Deformation rate: −1.8 mm/yr  |  Last update: 8 hours ago",
   },
   {
-    name: "Park District - Zone D-03",
+    name: "Park District — Zone D-03",
     status: "active-status",
     statusLabel: "STABLE",
-    details: "Deformation rate: -0.5mm/year | Last update: 12 hours ago",
+    details: "Deformation rate: −0.5 mm/yr  |  Last update: 12 hours ago",
   },
 ];
 
@@ -102,7 +102,7 @@ export default function DashboardPage() {
       <Navbar />
 
       <div className="container">
-        <div className="dashboard-header" style={{ marginBottom: "4rem" }}>
+        <div className="dashboard-header" style={{ marginBottom: "3rem" }}>
           <h1 className="dashboard-title">
             Urban Ground Instability Monitoring
           </h1>
@@ -135,14 +135,14 @@ export default function DashboardPage() {
                 <div className="map-placeholder-icon">
                   <i className="fas fa-map"></i>
                 </div>
-                <p>Interactive InSAR deformation map</p>
-                <p style={{ fontSize: "0.85rem", marginTop: "0.5rem" }}>
-                  <Link
-                    href="/map"
-                    style={{ color: "#64b5f6", textDecoration: "underline" }}
-                  >
-                    Open Sinkhole Mapper →
+                <p>Interactive InSAR Deformation Map</p>
+                <p style={{ fontSize: "0.85rem", marginTop: "0.75rem" }}>
+                  <Link href="/map" className="map-cta-link">
+                    <i className="fas fa-satellite-dish"></i> Open Sinkhole Susceptibility Mapper →
                   </Link>
+                </p>
+                <p style={{ fontSize: "0.75rem", marginTop: "0.5rem", opacity: 0.5 }}>
+                  Search any city to visualize risk zones with live InSAR data
                 </p>
               </div>
             </div>
@@ -154,9 +154,9 @@ export default function DashboardPage() {
               <h3 className="card-title">
                 <i className="fas fa-bell"></i> Recent Alerts
               </h3>
-              <a href="#" className="view-all">
+              <span className="view-all" style={{ cursor: "default", opacity: 0.5 }}>
                 View All <i className="fas fa-arrow-right"></i>
-              </a>
+              </span>
             </div>
             <div className="alert-list">
               {alerts.map((a, i) => (
@@ -172,9 +172,9 @@ export default function DashboardPage() {
             <h3 className="card-title">
               <i className="fas fa-layer-group"></i> Active Monitoring Zones
             </h3>
-            <a href="#" className="view-all">
-              Manage Zones <i className="fas fa-arrow-right"></i>
-            </a>
+            <Link href="/map" className="view-all">
+              Analyze on Map <i className="fas fa-arrow-right"></i>
+            </Link>
           </div>
           <div className="zone-list">
             {zones.map((z, i) => (
