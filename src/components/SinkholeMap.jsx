@@ -5,8 +5,6 @@ import { MapContainer, TileLayer, GeoJSON, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-
-/** Fly to a new center whenever it changes */
 function MapController({ center, zoom }) {
   const map = useMap();
   useEffect(() => {
@@ -17,14 +15,21 @@ function MapController({ center, zoom }) {
   return null;
 }
 
+const RISK_COLOR = {
+  very_high: "#ef4444",
+  moderate: "#facc15",
+  low: "#4ade80",
+};
+
+const RISK_RADIUS = {
+  very_high: 8,
+  moderate: 5,
+  low: 3,
+};
+
 function getPolygonStyle(feature) {
-  const risk = feature.properties.risk;
-  return {
-    color: risk === "very_high" ? "#ef4444" : "#facc15",
-    fillColor: risk === "very_high" ? "#ef4444" : "#facc15",
-    fillOpacity: 0.55,
-    weight: 1.5,
-  };
+  const color = RISK_COLOR[feature.properties.risk] ?? RISK_COLOR.low;
+  return { color, fillColor: color, fillOpacity: 0.55, weight: 1.5 };
 }
 
 export default function SinkholeMap({ center, zoom, geojsonData, onSelectZone }) {
@@ -40,47 +45,52 @@ export default function SinkholeMap({ center, zoom, geojsonData, onSelectZone })
         attribution="&copy; OpenStreetMap contributors"
       />
       <MapController center={center} zoom={zoom} />
+
       {geojsonData && (
         <GeoJSON
           key={JSON.stringify(center)}
           data={geojsonData}
           style={getPolygonStyle}
           pointToLayer={(feature, latlng) => {
-            const risk = feature.properties.risk;
-            const color = risk === "very_high" ? "#ef4444" : (risk === "moderate" ? "#facc15" : "#4ade80");
+            const risk = feature.properties.risk ?? "low";
             return L.circleMarker(latlng, {
-              radius: risk === "very_high" ? 8 : 4,
-              fillColor: color,
+              radius: RISK_RADIUS[risk] ?? 3,
+              fillColor: RISK_COLOR[risk] ?? RISK_COLOR.low,
               color: "#fff",
               weight: 1,
               opacity: 1,
-              fillOpacity: 0.8
+              fillOpacity: 0.8,
             });
           }}
           onEachFeature={(feature, layer) => {
-            const { risk, bci_db, isi_std } = feature.properties;
-            
-            layer.on('click', () => {
+            const { risk, bci, isi, persistence, confidence } = feature.properties;
+            const color = RISK_COLOR[risk] ?? RISK_COLOR.low;
+            const label = risk === "very_high"
+              ? "HIGH CONFIDENCE"
+              : risk === "moderate"
+              ? "MODERATE CONFIDENCE"
+              : "LOW CONFIDENCE";
+
+            layer.on("click", () => {
               if (onSelectZone) onSelectZone(feature.properties);
             });
 
             layer.bindPopup(
-              `<div style="font-family: Inter, sans-serif; color: #1a1a1a;">` +
-              `<b style="color: ${risk === 'very_high' ? '#ef4444' : '#b45309'}; text-transform: uppercase;">Heuristic Outlier: ${risk.replace("_", " ")}</b><br/>` +
+              `<div style="font-family: Inter, sans-serif; color: #1a1a1a; min-width: 180px;">` +
+              `<b style="color: ${color}; text-transform: uppercase;">${label}</b>` +
               `<hr style="margin: 5px 0; border: 0; border-top: 1px solid #eee;"/>` +
-              `<b>BCI:</b> ${bci_db} dB<br/>` +
-              `<b>ISI:</b> ${isi_std} (Intensity StdDev)<br/>` +
-              `<div style="font-size: 0.65rem; margin-top: 5px; opacity: 0.7;">* Uncalibrated Heuristic Analysis</div>` +
+              `<b>Confidence:</b> ${confidence}% (heuristic)<br/>` +
+              `<b>BCI (log-ratio):</b> ${bci}<br/>` +
+              `<b>ISI (temporal stdDev):</b> ${isi}<br/>` +
+              `<b>Persistence:</b> ${persistence} acquisition(s)<br/>` +
+              `<div style="font-size: 0.62rem; margin-top: 6px; opacity: 0.6; line-height:1.4;">` +
+              `Backscatter anomaly — not a deformation measurement.<br/>` +
+              `Click panel for metric explanations.</div>` +
               `</div>`
             );
           }}
-
-
-
         />
       )}
-
     </MapContainer>
   );
 }
-

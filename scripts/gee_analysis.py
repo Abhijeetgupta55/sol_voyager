@@ -1,179 +1,195 @@
+"""
+Sol Voyager — GEE Backscatter Anomaly Screener
+===============================================
+Detects statistical anomalies in Sentinel-1 GRD (Ground Range Detected) VV
+backscatter over a 5 km AOI using Google Earth Engine.
+
+WHAT THIS DOES
+--------------
+Multi-temporal intensity analysis: compares the most recent acquisition against
+a median baseline from up to 12 geometrically consistent acquisitions, then
+flags pixels whose log-ratio (BCI) or temporal variance (ISI) exceeds heuristic
+thresholds.
+
+WHAT THIS DOES NOT DO
+---------------------
+- Does NOT use SLC (Single-Look Complex) data.
+- Does NOT compute interferometric phase.
+- Does NOT measure millimetric ground deformation.
+- Outputs are uncalibrated statistical outliers. They require ground-truth
+  validation before being used for any risk-assessment decision.
+
+DETECTION LOGIC (heuristic, uncalibrated)
+-----------------------------------------
+  Path A: |BCI| > 1.0  AND  ISI > 1.0          (persistent high variation)
+  Path B: |BCI| > 1.5                           (strong single-image shift)
+  Final : (Path A OR Path B) AND persistence ≥ 1 AND connected_pixels > 1
+
+CONFIDENCE SCORE (0–100, heuristic)
+-------------------------------------
+  0.4 × clamp(|BCI|/4.0, 0, 1)
+  + 0.3 × clamp(ISI/8.0,  0, 1)
+  + 0.3 × clamp(pers/6.0, 0, 1)
+  Normalisation denominators are arbitrary; treat as relative ranking only.
+"""
+
 import ee
 import sys
 import json
 import os
 from dotenv import load_dotenv
 
-# Load environment
 load_dotenv()
 
+
 def run_gee_analysis(lat, lon):
-    """
-    SAR BACKSCATTER ANOMALY DETECTION (RESEARCH GRADE):
-    1. Robust Adaptive Geometry Detection.
-    2. SRTM-based Slope Masking (>15 deg removed).
-    3. Strict Geometric Consistency (Orbit/Angle) - NO FALLBACKS.
-    4. Explicitly labeled uncalibrated heuristics.
-    """
+    # ── GEE initialisation ─────────────────────────────────────────────────
     try:
         project_id = os.getenv("GEE_PROJECT_ID")
-        if project_id:
-            ee.Initialize(project=project_id)
-        else:
-            ee.Initialize()
+        ee.Initialize(project=project_id) if project_id else ee.Initialize()
     except Exception as e:
-        err_res = {"error": f"GEE Initialization Failed: {str(e)}"}
-        print(f"RESULT_JSON:{json.dumps(err_res)}")
-        return err_res
+        _fail(f"GEE initialisation failed: {e}")
+        return
 
-    # AOI - 5km Study Zone
+    # ── AOI: 5 km buffer ───────────────────────────────────────────────────
     point = ee.Geometry.Point([lon, lat])
     aoi = point.buffer(5000).bounds()
 
-    # 1. Broad Query
-    base_col = ee.ImageCollection('COPERNICUS/S1_GRD') \
-        .filterBounds(aoi) \
-        .filter(ee.Filter.listContains('transmitterReceiverPolarisation', 'VV')) \
-        .filter(ee.Filter.eq('instrumentMode', 'IW')) \
-        .sort('system:time_start', False)
-
-    # 2. ROBUST GEOMETRY DETECTION
-    # Sometimes the very latest image has incomplete metadata. 
-    # We find the most recent image with a full geometric signature.
-    # 2. ROBUST GEOMETRY DETECTION
-    def find_reference_geometry(collection):
-        list_imgs = collection.limit(5).getInfo().get('features', [])
-        for f in list_imgs:
-            p = f.get('properties', {})
-            o = p.get('orbitProperties_pass')
-            a = p.get('incidenceAngle') # Might be None
-            if o:
-                return o, a
-        return None, None
-
-    orbit_pass, angle = find_reference_geometry(base_col)
-    
-    if orbit_pass is None:
-        err_res = {"error": "Could not identify orbital pass for this AOI."}
-        print(f"RESULT_JSON:{json.dumps(err_res)}")
-        return err_res
-
-    # 3. STRICT Consistency Filter (No Fallback)
-    s1_col = base_col.filter(ee.Filter.eq('orbitProperties_pass', orbit_pass))
-    
-    # Optional: Filter by angle only if metadata is available
-    if angle:
-        s1_col = s1_col.filter(ee.Filter.rangeContains('incidenceAngle', angle - 5, angle + 5))
-
-
-
-    # 4. TERRAIN & WATER NORMALIZATION (Slope & Surface Water Masked)
-    dem = ee.Image('USGS/SRTMGL1_003')
-    slope = ee.Terrain.slope(dem)
-    
-    # Global Surface Water Mask (JRC)
-    jrc = ee.Image('JRC/GSW1_4/GlobalSurfaceWater')
-    # Use unmask(0) to ensure land with 0 water occurrence is not nulled out
-    water_occurrence = jrc.select('occurrence').unmask(0)
-    land_mask = water_occurrence.lt(10) # Keep anything with < 10% water occurrence
-    
-    # Combined Mask: Gentle slope AND not water
-    # Increased slope threshold to 20 deg for better urban coverage
-    final_mask = slope.lt(20).And(land_mask)
-    
-    s1_col = s1_col.map(lambda img: img.updateMask(final_mask))
-
-    stack_size = s1_col.size().getInfo()
-
-
-    
-    # 5. Integrity Check
-    if stack_size < 5:
-        err_res = {"error": f"Insufficient consistent data ({stack_size} images) for {orbit_pass} pass at {angle} deg."}
-        print(f"RESULT_JSON:{json.dumps(err_res)}")
-        return err_res
-
-    stack = s1_col.limit(12)
-    latest = ee.Image(stack.first()).select('VV')
-    baseline = stack.median().select('VV')
-
-    # 6. Raw Intensity Metrics (BCI & ISI)
-    bci = latest.divide(baseline).log().rename('bci')
-    isi = stack.select('VV').reduce(ee.Reducer.stdDev()).rename('isi')
-
-    # 7. Extract Area Statistics
-    stats = bci.addBands(isi).reduceRegion(
-        reducer=ee.Reducer.mean(),
-        geometry=aoi,
-        scale=10, 
-        maxPixels=1e9
-    ).getInfo()
-
-    # 8. HEURISTIC ANOMALY SAMPLING
-    anomaly_mask = bci.abs().gt(1.5).Or(isi.gt(3.0))
-    
-    # NEW: Binary Label for ML (1 if the AOI contains high-magnitude anomalies)
-    has_anomaly = anomaly_mask.reduceRegion(
-        reducer=ee.Reducer.max(),
-        geometry=aoi,
-        scale=100
-    ).getInfo().get('bci', 0) or anomaly_mask.reduceRegion(
-        reducer=ee.Reducer.max(),
-        geometry=aoi,
-        scale=100
-    ).getInfo().get('isi', 0)
-
-    # 9. PATCH EXPORT (2.5km Center Patch)
-    # Define a smaller patch for ML training (256x256 pixels approx)
-    patch_aoi = point.buffer(1280).bounds() 
-    patch_url = bci.addBands(isi).getDownloadURL({
-        'name': 'sar_patch',
-        'scale': 10,
-        'region': patch_aoi,
-        'format': 'NPY'
-    })
-
-    # 8. DETERMINISTIC VECTORIZED EXTRACTION
-    # We use the integer mask as the first band to define vector boundaries
-    # bci and isi are carried as additional bands for the reducer to process.
-    vector_input = anomaly_mask.rename('label').toInt().addBands(bci).addBands(isi)
-    
-    anomaly_vectors = vector_input.reduceToVectors(
-        geometry=aoi,
-        scale=40,               # 40m resolution for spatial consistency
-        geometryType='centroid',
-        reducer=ee.Reducer.mean(),
-        maxPixels=1e8
+    # ── 1. Broad Sentinel-1 GRD query (VV, IW, newest first) ──────────────
+    base_col = (
+        ee.ImageCollection("COPERNICUS/S1_GRD")
+        .filterBounds(aoi)
+        .filter(ee.Filter.listContains("transmitterReceiverPolarisation", "VV"))
+        .filter(ee.Filter.eq("instrumentMode", "IW"))
+        .sort("system:time_start", False)
     )
 
-    # Convert to GeoJSON features
-    samples = anomaly_vectors.getInfo()
+    # ── 2. Enforce geometric consistency (same orbit & ±5° incidence) ──────
+    orbit_pass, angle = _detect_geometry(base_col)
+    if orbit_pass is None:
+        _fail("Could not identify orbital pass from first 5 images.")
+        return
 
+    s1_col = base_col.filter(ee.Filter.eq("orbitProperties_pass", orbit_pass))
+    if angle is not None:
+        s1_col = s1_col.filter(
+            ee.Filter.rangeContains("incidenceAngle", angle - 5, angle + 5)
+        )
 
+    # ── 3. Environmental masking (slope > 20° and open water removed) ──────
+    slope = ee.Terrain.slope(ee.Image("USGS/SRTMGL1_003"))
+    water_occ = ee.Image("JRC/GSW1_4/GlobalSurfaceWater").select("occurrence").unmask(0)
+    terrain_mask = slope.lt(20).And(water_occ.lte(10))
+    s1_col = s1_col.map(lambda img: img.updateMask(terrain_mask))
 
+    # ── 4. Stack integrity check ───────────────────────────────────────────
+    total_available = s1_col.size().getInfo()
+    if total_available < 5:
+        _fail(
+            f"Only {total_available} geometrically consistent images available "
+            "(minimum 5 required for stable baseline)."
+        )
+        return
+
+    stack = s1_col.limit(12)   # cap at 12 for manageable computation
+    latest = ee.Image(stack.first()).select("VV")
+    baseline = stack.median().select("VV")   # robust to outliers
+
+    # ── 5. Core metrics ────────────────────────────────────────────────────
+    # BCI: log-ratio of latest vs. baseline (natural log, dimensionless)
+    bci = latest.divide(baseline).log().rename("bci")
+
+    # ISI: temporal standard deviation across the stack
+    isi = stack.select("VV").reduce(ee.Reducer.stdDev()).rename("isi")
+
+    # Persistence: count images where |log-ratio| exceeds 1.2
+    def _count_recurrence(img):
+        diff = img.select("VV").divide(baseline).log().abs()
+        return diff.gt(1.2).rename("occ")
+
+    persistence = (
+        ee.ImageCollection(stack).map(_count_recurrence).sum().rename("persistence")
+    )
+
+    # ── 6. Heuristic detection logic ───────────────────────────────────────
+    path_a = bci.abs().gt(1.0).And(isi.gt(1.0))   # persistent high variation
+    path_b = bci.abs().gt(1.5)                     # strong single-image shift
+    # Require at least 1 recurrence (persistence > 0) to suppress one-off artefacts
+    flagged = path_a.Or(path_b).And(persistence.gt(0))
+
+    # ── 7. Speckle removal (require ≥ 2 connected pixels) ─────────────────
+    pixel_count = flagged.connectedPixelCount(100, False)
+    anomaly_mask = flagged.And(pixel_count.gt(1))
+
+    # ── 8. Weighted confidence score (0–100) ──────────────────────────────
+    conf_bci = bci.abs().divide(4.0).clamp(0, 1)
+    conf_isi = isi.divide(8.0).clamp(0, 1)
+    conf_pers = persistence.divide(6.0).clamp(0, 1)
+    confidence = (
+        conf_bci.multiply(0.4)
+        .add(conf_isi.multiply(0.3))
+        .add(conf_pers.multiply(0.3))
+        .multiply(100)
+        .rename("confidence")
+    )
+
+    # ── 9. Vectorised extraction at 40 m grid ─────────────────────────────
+    vector_input = (
+        anomaly_mask.rename("label").toInt()
+        .addBands(bci)
+        .addBands(isi)
+        .addBands(persistence)
+        .addBands(confidence)
+    )
+    anomaly_vectors = vector_input.updateMask(anomaly_mask).reduceToVectors(
+        geometry=aoi,
+        scale=40,
+        geometryType="centroid",
+        reducer=ee.Reducer.mean(),
+        maxPixels=1e8,
+    )
+
+    # Return top 300 by confidence (UI practicality limit)
+    top_features = anomaly_vectors.sort("confidence", False).limit(300)
+    features = top_features.getInfo()["features"]
 
     result = {
         "product_count": stack.size().getInfo(),
-        "total_available": stack_size,
+        "total_available": total_available,
         "orbit_detected": orbit_pass,
-        "reference_angle": angle,
-        "mean_bci": stats.get('bci'),
-        "mean_isi": stats.get('isi'),
-        "anomalies": samples['features'], 
-        "patch_url": patch_url,
-        "label": 1 if has_anomaly else 0,
-        "status": "GEOMETRIC_INTEGRITY_ENFORCED",
-        "terrain_correction": "SRTM_SLOPE_JRC_WATER_MASKED",
-        "methodology": "Heuristic Outlier Detection (Uncalibrated)"
-
+        "incidence_angle": round(angle, 1) if angle is not None else None,
+        "anomaly_count": len(features),
+        "anomalies": features,
+        "methodology": (
+            "GRD VV backscatter log-ratio anomaly detection. "
+            "No phase data; no deformation measurement. "
+            "Outputs require ground-truth validation."
+        ),
+        "status": "BACKSCATTER_ANALYSIS_COMPLETE",
     }
-
-    
     print(f"RESULT_JSON:{json.dumps(result)}")
     return result
+
+
+def _detect_geometry(collection):
+    """Return (orbit_pass, incidence_angle) from the first available image."""
+    features = collection.limit(5).getInfo().get("features", [])
+    for f in features:
+        props = f.get("properties", {})
+        orbit = props.get("orbitProperties_pass")
+        angle = props.get("incidenceAngle")
+        if orbit:
+            return orbit, angle
+    return None, None
+
+
+def _fail(message):
+    print(f"RESULT_JSON:{json.dumps({'error': message})}")
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 2:
         run_gee_analysis(float(sys.argv[1]), float(sys.argv[2]))
     else:
-        run_gee_analysis(28.6139, 77.2090)
+        # Default: Karapınar, Turkey — active sinkhole region
+        run_gee_analysis(37.675, 33.554)

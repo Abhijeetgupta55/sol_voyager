@@ -7,92 +7,100 @@ import ZoneItem from "@/components/ZoneItem";
 import Footer from "@/components/Footer";
 import Link from "next/link";
 
+// NOTE: These stats are illustrative placeholders for UI demonstration.
+// A production system would derive these from a persistent database of
+// completed GEE analysis jobs, not static constants.
 const stats = [
   {
     icon: "fas fa-satellite",
-    label: "Monitoring Zones",
-    value: "24",
-    change: "3 new zones this month",
-    changeIcon: "fas fa-arrow-up",
+    label: "Queried Regions",
+    value: "21",
+    change: "Demo data — not live",
+    changeIcon: "fas fa-info-circle",
     variant: "success",
   },
   {
     icon: "fas fa-exclamation-circle",
-    label: "Active Alerts",
-    value: "7",
-    change: "2 in last 24h",
-    changeIcon: "fas fa-arrow-up",
+    label: "High-Confidence Clusters",
+    value: "—",
+    change: "Run /map to generate",
+    changeIcon: "fas fa-arrow-right",
     variant: "danger",
   },
   {
     icon: "fas fa-map-marker-alt",
-    label: "High Risk Areas",
-    value: "12",
-    change: "1 resolved this week",
-    changeIcon: "fas fa-arrow-down",
+    label: "Dataset Patches",
+    value: "21",
+    change: "Labels in dataset/labels/",
+    changeIcon: "fas fa-database",
     variant: "warning",
   },
   {
     icon: "fas fa-sync-alt",
-    label: "Data Uptime",
-    value: "98.5%",
-    change: "System healthy",
+    label: "GEE API Status",
+    value: "Live",
+    change: "Sentinel-1 GRD VV",
     changeIcon: "fas fa-check-circle",
     variant: "",
   },
 ];
 
+// Illustrative alert entries — a real system would populate these from
+// a persistent store of anomaly detections with timestamps and coordinates.
 const alerts = [
   {
-    title: "Critical Subsidence Detected",
+    title: "High-Confidence Backscatter Anomaly",
     severity: "high",
-    location: "Downtown District, Zone A-12",
-    time: "2 hours ago",
+    location: "Karapınar, Turkey (demo run)",
+    time: "Example entry",
   },
   {
-    title: "Ground Deformation Increase",
+    title: "Moderate Anomaly Cluster Detected",
     severity: "medium",
-    location: "Industrial Area, Zone B-07",
-    time: "5 hours ago",
+    location: "Mexico City, Mexico (demo run)",
+    time: "Example entry",
   },
   {
-    title: "Potential Sinkhole Formation",
+    title: "Anomaly Candidates Identified",
     severity: "medium",
-    location: "Residential Area, Zone C-15",
-    time: "8 hours ago",
+    location: "Venice, Italy (demo run)",
+    time: "Example entry",
   },
   {
-    title: "Monitoring Update Available",
+    title: "SAR Stack Analysis Complete",
     severity: "low",
-    location: "Park District, Zone D-03",
-    time: "12 hours ago",
+    location: "Delhi, India (demo run)",
+    time: "Example entry",
   },
 ];
 
+// Illustrative zone entries. Deformation rates shown as "N/A" because this
+// system measures backscatter anomalies, not phase-unwrapped displacement.
+// Actual rates require SLC InSAR processing (not implemented here).
 const zones = [
   {
-    name: "Downtown District — Zone A-12",
+    name: "Karapınar, Turkey",
     status: "monitoring-status",
-    statusLabel: "MONITORING",
-    details: "Deformation rate: −8.5 mm/yr  |  Last update: 2 hours ago",
+    statusLabel: "SCREENED",
+    details: "BCI anomaly confidence: heuristic | Deformation rate: N/A (GRD only)",
   },
   {
-    name: "Industrial Area — Zone B-07",
+    name: "Mexico City, Mexico",
     status: "monitoring-status",
-    statusLabel: "MONITORING",
-    details: "Deformation rate: −5.2 mm/yr  |  Last update: 5 hours ago",
+    statusLabel: "SCREENED",
+    details: "BCI anomaly confidence: heuristic | Deformation rate: N/A (GRD only)",
   },
   {
-    name: "Residential Area — Zone C-15",
+    name: "Venice, Italy",
     status: "active-status",
-    statusLabel: "STABLE",
-    details: "Deformation rate: −1.8 mm/yr  |  Last update: 8 hours ago",
+    statusLabel: "SCREENED",
+    details: "BCI anomaly confidence: heuristic | Deformation rate: N/A (GRD only)",
   },
   {
-    name: "Park District — Zone D-03",
+    name: "Delhi, India",
     status: "active-status",
-    statusLabel: "STABLE",
-    details: "Deformation rate: −0.5 mm/yr  |  Last update: 12 hours ago",
+    statusLabel: "SCREENED",
+    details: "BCI anomaly confidence: heuristic | Deformation rate: N/A (GRD only)",
   },
 ];
 
@@ -107,7 +115,8 @@ export default function DashboardPage() {
             Urban Ground Instability Monitoring
           </h1>
           <p className="dashboard-subtitle">
-            Real-time early warning system powered by Sentinel-1 InSAR analysis
+            Sentinel-1 SAR backscatter anomaly screening — heuristic outlier detection,
+            not phase-deformation measurement. Use /map to run a live analysis.
           </p>
         </div>
 
@@ -135,14 +144,14 @@ export default function DashboardPage() {
                 <div className="map-placeholder-icon">
                   <i className="fas fa-map"></i>
                 </div>
-                <p>Interactive InSAR Deformation Map</p>
+                <p>SAR Backscatter Anomaly Map</p>
                 <p style={{ fontSize: "0.85rem", marginTop: "0.75rem" }}>
                   <Link href="/map" className="map-cta-link">
                     <i className="fas fa-satellite-dish"></i> Open Sinkhole Susceptibility Mapper →
                   </Link>
                 </p>
                 <p style={{ fontSize: "0.75rem", marginTop: "0.5rem", opacity: 0.5 }}>
-                  Search any city to visualize risk zones with live InSAR data
+                  Search any city to screen SAR backscatter anomalies (heuristic, uncalibrated)
                 </p>
               </div>
             </div>

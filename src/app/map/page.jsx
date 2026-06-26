@@ -7,7 +7,6 @@ import Navbar from "@/components/Navbar";
 import InfoPanel from "@/components/InfoPanel";
 import Footer from "@/components/Footer";
 
-// Leaflet requires browser APIs, so we must disable SSR
 const SinkholeMap = dynamic(() => import("@/components/SinkholeMap"), {
   ssr: false,
   loading: () => (
@@ -18,7 +17,7 @@ const SinkholeMap = dynamic(() => import("@/components/SinkholeMap"), {
   ),
 });
 
-const DEFAULT_CENTER = [37.675, 33.554]; // Karapınar, Turkey
+const DEFAULT_CENTER = [37.675, 33.554]; // Karapınar, Turkey — known sinkhole region
 
 export default function MapPage() {
   const [citySearch, setCitySearch] = useState("");
@@ -26,22 +25,22 @@ export default function MapPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [mapCenter, setMapCenter] = useState(DEFAULT_CENTER);
   const [factors, setFactors] = useState({
-    geology: "No data available",
-    insar_summary: "No data available",
-    groundwater: "No data available",
+    bci_description: "No data available",
+    isi_description: "No data available",
+    sar_summary: "No data available",
   });
-  const [insarMetadata, setInsarMetadata] = useState(null);
+  const [sarMetadata, setSarMetadata] = useState(null);
   const [error, setError] = useState(null);
   const [lastCity, setLastCity] = useState(null);
-
   const [selectedZone, setSelectedZone] = useState(null);
-  const [realProducts, setRealProducts] = useState([]);
   const [terminalLogs, setTerminalLogs] = useState([]);
   const [geeResult, setGeeResult] = useState(null);
 
-
   const addLog = (msg) => {
-    setTerminalLogs(prev => [...prev.slice(-4), `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    setTerminalLogs((prev) => [
+      ...prev.slice(-4),
+      `[${new Date().toLocaleTimeString()}] ${msg}`,
+    ]);
   };
 
   const analyzeRegion = async () => {
@@ -49,15 +48,13 @@ export default function MapPage() {
     setIsLoading(true);
     setError(null);
     setSelectedZone(null);
-    setRealProducts([]);
     setTerminalLogs([]);
     setGeeResult(null);
 
-    
     try {
-      addLog("Initializing GEE Cloud Pipeline (Sentinel-1 SLC Stack)...");
+      addLog("Initializing GEE Cloud Pipeline (Sentinel-1 GRD stack)...");
       const startTime = Date.now();
-      
+
       const res = await fetch(
         `/api/susceptibility?city=${encodeURIComponent(citySearch.trim())}`
       );
@@ -66,42 +63,35 @@ export default function MapPage() {
         throw new Error(errorData.error || "Satellite data query failed.");
       }
       const data = await res.json();
-      
-      const elapsed = (Date.now() - startTime) / 1000;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
       setGeeResult(data.geeResult);
-      
+
       if (data.geeResult && !data.geeResult.error) {
-        addLog(`GEE Handshake successful. Applying Radiometric Terrain Correction (SRTM)...`);
-        addLog(`SAR Backscatter Analysis complete at 10m resolution in ${elapsed.toFixed(1)}s.`);
-        addLog(`✅ DATA CLUSTER VERIFIED: Masked high-slope noise (>15°).`);
+        const n = data.geojson?.features?.length ?? 0;
+        addLog(
+          `GEE handshake OK — orbit: ${data.geeResult.orbit_detected ?? "?"}, ` +
+          `stack: ${data.geeResult.product_count} acquisitions`
+        );
+        addLog(`Backscatter anomaly screening complete in ${elapsed}s — ${n} candidate clusters.`);
+        addLog("Note: outputs are heuristic outliers, not phase-deformation measurements.");
       } else {
-
-
-
-        const errorMsg = data.geeResult?.error || "Connection timeout or quota exceeded.";
-        addLog(`GEE ERROR: ${errorMsg}`);
+        const msg = data.geeResult?.error ?? "Connection timeout or quota exceeded.";
+        addLog(`GEE error: ${msg}`);
       }
 
-      
       setSusceptibilityData(data.geojson);
       setMapCenter(data.center);
       setFactors(data.factors);
-      setInsarMetadata(data.insarMetadata);
-      setRealProducts(data.realProducts || []);
+      setSarMetadata(data.sarMetadata);
       setLastCity(citySearch.trim());
     } catch (err) {
-
-
       setError(err.message || "Failed to fetch susceptibility data.");
       addLog("CRITICAL ERROR: Processing pipeline aborted.");
     } finally {
       setIsLoading(false);
     }
   };
-
-
-
-
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter") analyzeRegion();
@@ -113,12 +103,16 @@ export default function MapPage() {
 
       <div className="container">
         <div className="dashboard-header" style={{ marginBottom: "2rem" }}>
-          <h1 className="dashboard-title" style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+          <h1
+            className="dashboard-title"
+            style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}
+          >
             Sol Voyager: Instability Dashboard
-            <span className="nasa-badge">Sentinel-1 InSAR Research</span>
+            <span className="nasa-badge">Sentinel-1 SAR Backscatter Research</span>
           </h1>
           <p className="dashboard-subtitle">
-            Advanced land subsidence detection using Synthetic Aperture Radar (SAR) interferometry.
+            Ground instability screening using multi-temporal Sentinel-1 SAR backscatter
+            analysis. Outputs are heuristic anomaly candidates — not millimetric InSAR deformation.
           </p>
         </div>
 
@@ -129,7 +123,7 @@ export default function MapPage() {
             <input
               className="map-search-input"
               type="text"
-              placeholder="Query region for InSAR analysis (e.g. Karapinar, Mexico City, Venice...)"
+              placeholder="Query region for SAR backscatter screening (e.g. Karapinar, Mexico City, Venice...)"
               value={citySearch}
               onChange={(e) => setCitySearch(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -146,32 +140,33 @@ export default function MapPage() {
             ) : (
               <i className="fas fa-microscope"></i>
             )}
-            {isLoading ? "Inverting Phase..." : "Analyze Subsidence"}
+            {isLoading ? "Processing..." : "Analyze Region"}
           </button>
         </div>
 
         {/* Research Terminal */}
         {(isLoading || terminalLogs.length > 0) && (
-          <div className="research-terminal" style={{ 
-            background: "#000", 
-            color: "#00ff00", 
-            fontFamily: "monospace", 
-            padding: "1rem", 
-            borderRadius: "8px", 
-            fontSize: "0.8rem", 
-            marginTop: "1rem",
-            border: "1px solid #333",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.5)"
-          }}>
+          <div
+            className="research-terminal"
+            style={{
+              background: "#000",
+              color: "#00ff00",
+              fontFamily: "monospace",
+              padding: "1rem",
+              borderRadius: "8px",
+              fontSize: "0.8rem",
+              marginTop: "1rem",
+              border: "1px solid #333",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+            }}
+          >
             {terminalLogs.length === 0 && <div>&gt; Awaiting satellite handshake...</div>}
             {terminalLogs.map((log, i) => (
               <div key={i}>&gt; {log}</div>
             ))}
             {isLoading && <div className="blink-cursor">&gt; _</div>}
           </div>
-
         )}
-
 
         {error && (
           <div className="map-error">
@@ -180,13 +175,17 @@ export default function MapPage() {
         )}
 
         {lastCity && (
-          <div className="map-status-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div
+            className="map-status-bar"
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}
+          >
             <span>
               <i className="fas fa-check-circle" style={{ color: "var(--primary-glow)" }}></i>
-              Analysis complete for <strong>{lastCity}</strong>
+              {" "}Analysis complete for <strong>{lastCity}</strong>
             </span>
             <span style={{ fontSize: "0.8rem", opacity: 0.7 }}>
-              Acquisition Date: {insarMetadata?.acquisition_date} | Mode: IW
+              {sarMetadata?.orbit && `Orbit: ${sarMetadata.orbit}`}
+              {sarMetadata?.stack_integrity && ` | ${sarMetadata.stack_integrity}`}
             </span>
           </div>
         )}
@@ -194,33 +193,37 @@ export default function MapPage() {
         <div className="map-layout">
           {/* Sidebar */}
           <div className="map-sidebar">
-            <InfoPanel 
-              factors={factors} 
-              susceptibilityData={susceptibilityData} 
-              insarMetadata={insarMetadata}
+            <InfoPanel
+              factors={factors}
+              susceptibilityData={susceptibilityData}
+              sarMetadata={sarMetadata}
               selectedZone={selectedZone}
-              realProducts={realProducts}
               geeResult={geeResult}
             />
 
-
-
             <div className="map-legend card" style={{ marginTop: "1rem" }}>
               <h3 className="card-title" style={{ marginBottom: "1rem" }}>
-                <i className="fas fa-chart-line"></i> Risk Legend
+                <i className="fas fa-chart-line"></i> Anomaly Confidence Legend
               </h3>
               <div className="legend-item">
                 <span className="legend-swatch" style={{ background: "#ef4444" }}></span>
                 <div>
-                  <div className="legend-label">Critical Subsidence</div>
-                  <div className="legend-desc">&lt; -8.0 mm/yr (Sentinel-1)</div>
+                  <div className="legend-label">High Anomaly Confidence</div>
+                  <div className="legend-desc">Score &gt; 65 (heuristic, uncalibrated)</div>
                 </div>
               </div>
               <div className="legend-item">
                 <span className="legend-swatch" style={{ background: "#facc15" }}></span>
                 <div>
-                  <div className="legend-label">Moderate Movement</div>
-                  <div className="legend-desc">-4.0 to -8.0 mm/yr</div>
+                  <div className="legend-label">Moderate Anomaly Confidence</div>
+                  <div className="legend-desc">Score 35–65 (heuristic, uncalibrated)</div>
+                </div>
+              </div>
+              <div className="legend-item">
+                <span className="legend-swatch" style={{ background: "#4ade80" }}></span>
+                <div>
+                  <div className="legend-label">Low Anomaly Confidence</div>
+                  <div className="legend-desc">Score ≤ 35 (heuristic, uncalibrated)</div>
                 </div>
               </div>
             </div>
@@ -234,10 +237,11 @@ export default function MapPage() {
               geojsonData={susceptibilityData}
               onSelectZone={setSelectedZone}
             />
-
             <p className="map-caption">
-              <i className="fas fa-project-diagram"></i>
-              Visualizing relative ground displacement derived from SAR phase differences. Higher density zones indicate increased sinkhole susceptibility.
+              <i className="fas fa-info-circle"></i>
+              {" "}Visualizing SAR backscatter anomaly clusters (40 m grid, Sentinel-1 GRD VV).
+              Click a point to inspect BCI, ISI, and confidence components.
+              These are statistical outliers from a heuristic model — not validated risk assessments.
             </p>
           </div>
         </div>
@@ -247,4 +251,3 @@ export default function MapPage() {
     </>
   );
 }
-

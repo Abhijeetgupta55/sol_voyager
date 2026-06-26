@@ -4,7 +4,7 @@ import "@fortawesome/fontawesome-free/css/all.min.css";
 export const metadata = {
   title: "Sol Voyager - Urban Instability Dashboard",
   description:
-    "Real-time urban ground instability monitoring powered by Sentinel-1 InSAR analysis",
+    "Cloud-native ground instability screening using multi-temporal Sentinel-1 SAR backscatter anomaly detection via Google Earth Engine.",
 };
 
 export default function RootLayout({ children }) {
