@@ -168,7 +168,10 @@ def main():
             scores = [float(e.get("confidence", 0)) for e in valid]
             truths = [e["label"] for e in valid]
             rows = threshold_sweep(scores, truths)
-            header = f"  {'Threshold':>10}  {'Precision':>10}  {'Recall':>10}  {'F1':>10}  {'TP':>5}  {'FP':>5}  {'FN':>5}"
+            header = (
+                f"  {'Threshold':>10}  {'Precision':>10}  {'Recall':>10}  "
+                f"{'F1':>10}  {'TP':>5}  {'FP':>5}  {'FN':>5}"
+            )
             print(header)
             for r in rows:
                 print(
